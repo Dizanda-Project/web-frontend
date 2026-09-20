@@ -5,7 +5,7 @@ import ParallaxImage from './ParallaxImage';
 const EVENTS = [
   {
     id: 1,
-    title: 'Royal Wedding Reception',
+    title: 'Royal Wedding Receptio',
     person: 'Featured at a private celebrity wedding, Colombo',
     img: 'https://images.unsplash.com/photo-1519741497674-611481863552?q=80&w=800&auto=format&fit=crop'
   },
@@ -61,6 +61,7 @@ export default function EventsSection() {
   const scrollRef = useRef(null);
   const drag = useRef({ active: false, startX: 0, startScroll: 0, moved: false });
   const paused = useRef(false);
+  const resumeTimeout = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const scrollByAmount = (direction) => {
@@ -146,8 +147,6 @@ export default function EventsSection() {
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
   }, []);
-
-  const resumeTimeout = useRef(null);
 
   const pauseAutoScroll = () => {
     paused.current = true;
