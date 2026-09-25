@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingBag, Menu, X, User } from 'lucide-react';
+import { ShoppingBag, Menu, X, User, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../context/CartContext';
+import { supabase } from '../lib/supabaseClient';
 
 export default function Navbar({ onOpenCart }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [user, setUser] = useState(null);
   const location = useLocation();
   const { itemCount } = useCart();
 
@@ -15,8 +17,26 @@ export default function Navbar({ onOpenCart }) {
       setIsScrolled(window.scrollY > 50);
     };
     window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user || null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      subscription.unsubscribe();
+    };
   }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
   const navLinks = [
     { name: 'Collection', path: '/collection' },
@@ -57,9 +77,26 @@ export default function Navbar({ onOpenCart }) {
 
         {/* Action Icons */}
         <div className="flex items-center space-x-6 text-luxury-charcoal">
-          <Link to="/login" className="hover:text-luxury-champagne transition-colors hidden sm:block">
-            <User size={18} strokeWidth={1.5} />
-          </Link>
+          {user ? (
+            <div className="hidden sm:flex items-center space-x-4">
+              <Link to="/login" className="flex items-center space-x-2 hover:text-luxury-champagne transition-colors">
+                <User size={18} strokeWidth={1.5} />
+                <span className="text-xs uppercase tracking-widest">{user.user_metadata?.full_name || user.email.split('@')[0]}</span>
+              </Link>
+              <button 
+                onClick={handleLogout} 
+                className="hover:text-luxury-champagne transition-colors focus:outline-none flex items-center" 
+                title="Log out"
+                aria-label="Log out"
+              >
+                <LogOut size={18} strokeWidth={1.5} />
+              </button>
+            </div>
+          ) : (
+            <Link to="/login" className="hover:text-luxury-champagne transition-colors hidden sm:block">
+              <User size={18} strokeWidth={1.5} />
+            </Link>
+          )}
           <button
             onClick={onOpenCart}
             aria-label="Open cart"
@@ -118,13 +155,36 @@ export default function Navbar({ onOpenCart }) {
                 {link.name}
               </Link>
             ))}
-            <Link 
-              to="/login" 
-              onClick={() => setIsOpen(false)} 
-              className="py-2"
-            >
-              Profile / Account
-            </Link>
+            {user ? (
+              <>
+                <Link 
+                  to="/login" 
+                  onClick={() => setIsOpen(false)} 
+                  className="py-2 flex items-center space-x-2 border-b border-luxury-sand/30"
+                >
+                  <User size={14} />
+                  <span>{user.user_metadata?.full_name || user.email.split('@')[0]}</span>
+                </Link>
+                <button 
+                  onClick={() => {
+                    handleLogout();
+                    setIsOpen(false);
+                  }}
+                  className="py-2 flex items-center space-x-2 text-left focus:outline-none"
+                >
+                  <LogOut size={14} />
+                  <span>Log Out</span>
+                </button>
+              </>
+            ) : (
+              <Link 
+                to="/login" 
+                onClick={() => setIsOpen(false)} 
+                className="py-2"
+              >
+                Profile / Account
+              </Link>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

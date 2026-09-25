@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Minus, Plus, Trash2, ShoppingBag, Loader2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { submitOrder } from '../lib/adminApi';
+import { supabase } from '../lib/supabaseClient';
+import { useNavigate } from 'react-router-dom';
 
 const initialContact = { name: '', email: '', phone: '', notes: '' };
 
@@ -12,16 +14,72 @@ export default function CartDrawer({ open, onClose }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [user, setUser] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (open) {
       setSubmitted(false);
       setError('');
+
+      // Check auth status when opened
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user || null);
+        if (session?.user) {
+          setContact((prev) => ({
+            ...prev,
+            name: prev.name || session.user.user_metadata?.full_name || '',
+            email: prev.email || session.user.email || '',
+          }));
+        }
+      });
     }
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
   }, [open]);
 
   const handleContactChange = (field, value) => {
-    setContact((prev) => ({ ...prev, [field]: value }));
+    if (field === 'phone') {
+      let digits = value.replace(/\D/g, '');
+      if (digits.startsWith('0')) {
+        digits = '94' + digits.slice(1);
+      }
+      if (digits.startsWith('7') && digits.length <= 9) {
+        digits = '94' + digits;
+      }
+      if (digits.length > 0 && !digits.startsWith('94')) {
+        digits = '94' + digits.replace(/^94/, '');
+      }
+      setContact((prev) => ({ ...prev, phone: digits }));
+    } else {
+      setContact((prev) => ({ ...prev, [field]: value }));
+    }
+  };
+
+  const sendSmsConfirmation = async (phoneNumber, customerName, orderReference) => {
+    if (!phoneNumber) return;
+    try {
+      const message = `Dear ${customerName}, thank you for your quote request at Dizanda Cakes! 🎂 We have received your selections and our atelier team will personally reach out to you shortly with a custom quote. We look forward to creating something truly special for you. Your Order Reference: ${orderReference}`;
+
+      await fetch('https://api.smsgateway.lk/v1/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 364158,
+          api_key: import.meta.env.VITE_MSG_API_KEY,
+          sender_id: 'DizandaCake',
+          recipient_contact_no: phoneNumber,
+          message,
+        }),
+      });
+    } catch {
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -29,14 +87,17 @@ export default function CartDrawer({ open, onClose }) {
     setError('');
     setSubmitting(true);
     try {
+      const orderReference = `DIZANDA-${Date.now()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
       await submitOrder({
         source: 'cart',
         name: contact.name,
         email: contact.email,
         phone: contact.phone,
         message: contact.notes,
+        orderReference,
         items,
       });
+      sendSmsConfirmation(contact.phone, contact.name, orderReference);
       setSubmitted(true);
       setContact(initialContact);
       clearCart();
@@ -145,49 +206,73 @@ export default function CartDrawer({ open, onClose }) {
                   ))}
                 </div>
 
-                <form onSubmit={handleSubmit} className="border-t border-luxury-sand px-6 py-5 space-y-3">
-                  <p className="text-[10px] uppercase tracking-extreme text-luxury-muted">Request a quote for these items</p>
-                  <input
-                    type="text"
-                    value={contact.name}
-                    onChange={(e) => handleContactChange('name', e.target.value)}
-                    placeholder="Your name"
-                    required
-                    className="w-full rounded-xl border border-luxury-sand bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-luxury-champagne"
-                  />
-                  <div className="grid grid-cols-2 gap-3">
+                {user ? (
+                  <form onSubmit={handleSubmit} className="border-t border-luxury-sand px-6 py-5 space-y-3">
+                    <p className="text-[10px] uppercase tracking-extreme text-luxury-muted">Request a quote for these items</p>
                     <input
-                      type="email"
-                      value={contact.email}
-                      onChange={(e) => handleContactChange('email', e.target.value)}
-                      placeholder="Email"
+                      type="text"
+                      value={contact.name}
+                      onChange={(e) => handleContactChange('name', e.target.value)}
+                      placeholder="Your name"
                       required
                       className="w-full rounded-xl border border-luxury-sand bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-luxury-champagne"
                     />
-                    <input
-                      type="tel"
-                      value={contact.phone}
-                      onChange={(e) => handleContactChange('phone', e.target.value)}
-                      placeholder="Phone"
-                      className="w-full rounded-xl border border-luxury-sand bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-luxury-champagne"
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="email"
+                        value={contact.email}
+                        onChange={(e) => handleContactChange('email', e.target.value)}
+                        placeholder="Email"
+                        required
+                        className="w-full rounded-xl border border-luxury-sand bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-luxury-champagne"
+                      />
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          value={contact.phone}
+                          onChange={(e) => handleContactChange('phone', e.target.value)}
+                          placeholder="94771234567"
+                          pattern="94[0-9]{9}"
+                          title="Phone number must be in 94XXXXXXXXX format (e.g. 94771234567)"
+                          className="w-full rounded-xl border border-luxury-sand bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-luxury-champagne"
+                        />
+                        {contact.phone && !contact.phone.startsWith('94') && (
+                          <p className="mt-1 text-[10px] text-red-500">Number must start with 94</p>
+                        )}
+                      </div>
+                    </div>
+                    <textarea
+                      value={contact.notes}
+                      onChange={(e) => handleContactChange('notes', e.target.value)}
+                      placeholder="Anything else we should know?"
+                      className="w-full min-h-16 rounded-xl border border-luxury-sand bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-luxury-champagne"
                     />
+                    {error && <p className="text-xs text-red-600">{error}</p>}
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="w-full flex items-center justify-center gap-2 rounded-full bg-luxury-charcoal text-luxury-cream py-3 text-xs uppercase tracking-[0.3em] hover:bg-luxury-onyx transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {submitting && <Loader2 size={14} className="animate-spin" />}
+                      {submitting ? 'Sending…' : 'Submit Quote Request'}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="border-t border-luxury-sand px-6 py-6 text-center space-y-4">
+                    <p className="text-sm text-luxury-muted">
+                      Please sign in to submit a quote request for your selections.
+                    </p>
+                    <button
+                      onClick={() => {
+                        onClose();
+                        navigate('/login');
+                      }}
+                      className="w-full flex items-center justify-center rounded-full border border-luxury-charcoal text-luxury-charcoal py-3 text-xs uppercase tracking-[0.3em] hover:bg-luxury-charcoal hover:text-luxury-cream transition-colors"
+                    >
+                      Sign In
+                    </button>
                   </div>
-                  <textarea
-                    value={contact.notes}
-                    onChange={(e) => handleContactChange('notes', e.target.value)}
-                    placeholder="Anything else we should know?"
-                    className="w-full min-h-16 rounded-xl border border-luxury-sand bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-luxury-champagne"
-                  />
-                  {error && <p className="text-xs text-red-600">{error}</p>}
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full flex items-center justify-center gap-2 rounded-full bg-luxury-charcoal text-luxury-cream py-3 text-xs uppercase tracking-[0.3em] hover:bg-luxury-onyx transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {submitting && <Loader2 size={14} className="animate-spin" />}
-                    {submitting ? 'Sending…' : 'Submit Quote Request'}
-                  </button>
-                </form>
+                )}
               </>
             )}
           </motion.div>
