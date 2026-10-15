@@ -42,3 +42,31 @@ export async function submitOrder(payload) {
     clearTimeout(timeoutId);
   }
 }
+
+// Uploads a customer reference image to Cloudinary via the backend public
+// upload endpoint. Returns the Cloudinary URL string on success.
+export async function uploadReferenceImage(file) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const res = await fetch(`${ADMIN_API_URL}/upload/public`, {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.message || 'Image upload failed. Please try again.');
+    }
+
+    const data = await res.json();
+    return data.url;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, UploadCloud, Loader2 } from 'lucide-react';
-import { submitOrder } from '../lib/adminApi';
+import { X, UploadCloud, Loader2, CheckCircle2 } from 'lucide-react';
+import { submitOrder, uploadReferenceImage } from '../lib/adminApi';
 
 const ADONE_TYPES = ['Full Dummy', 'Partial Dummy', 'Full Real'];
 const FLAVORS = ['Vanilla', 'Chocolate', 'Strawberry', 'Matcha', 'Caramel', 'Hazelnut', 'Lemon', 'Espresso'];
@@ -16,21 +16,48 @@ const emptyForm = {
   email: '',
   phone: '',
   uploadedFileName: '',
+  uploadedFile: null,
+  uploadedImageUrl: '',
 };
 
 export default function CustomOrderModal({ open, onClose }) {
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleFileChange = event => {
+  const handleFileChange = async event => {
     const file = event.target.files?.[0];
-    if (file) {
-      setForm(prev => ({ ...prev, uploadedFileName: file.name }));
+    if (!file) return;
+
+    // Validate on the client side
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowed.includes(file.type)) {
+      setError('Only JPEG, PNG, WEBP or GIF images are allowed.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image must be smaller than 5 MB.');
+      return;
+    }
+
+    setError('');
+    setForm(prev => ({ ...prev, uploadedFileName: file.name, uploadedFile: file, uploadedImageUrl: '' }));
+
+    // Upload immediately so the user sees progress
+    setUploading(true);
+    try {
+      const url = await uploadReferenceImage(file);
+      setForm(prev => ({ ...prev, uploadedImageUrl: url }));
+    } catch (err) {
+      setError(err.message || 'Image upload failed. Please try again.');
+      setForm(prev => ({ ...prev, uploadedFileName: '', uploadedFile: null }));
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -61,6 +88,7 @@ export default function CustomOrderModal({ open, onClose }) {
           flavor: form.flavor,
           flowerChoice: form.flowerChoice,
           uploadedFileName: form.uploadedFileName,
+          uploadedImageUrl: form.uploadedImageUrl || '',
         },
       });
       onClose();
@@ -120,17 +148,28 @@ export default function CustomOrderModal({ open, onClose }) {
                   <span className="block text-xs font-normal text-luxury-muted mt-1">Attach a reference image or inspiration photo.</span>
                 </label>
                 <div className="flex items-center gap-3 rounded-xl border border-dashed border-luxury-sand bg-white px-4 py-4">
-                  <UploadCloud size={24} className="text-luxury-champagne" />
+                  {uploading ? (
+                    <Loader2 size={24} className="text-luxury-champagne animate-spin" />
+                  ) : form.uploadedImageUrl ? (
+                    <CheckCircle2 size={24} className="text-green-600" />
+                  ) : (
+                    <UploadCloud size={24} className="text-luxury-champagne" />
+                  )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-luxury-charcoal">{form.uploadedFileName || 'No file selected'}</p>
-                    <p className="text-xs text-luxury-muted">JPEG, PNG or web image</p>
+                    <p className="text-sm font-medium text-luxury-charcoal">
+                      {uploading ? 'Uploading…' : form.uploadedFileName || 'No file selected'}
+                    </p>
+                    <p className="text-xs text-luxury-muted">
+                      {form.uploadedImageUrl ? 'Uploaded successfully' : 'JPEG, PNG, WEBP or GIF (max 5 MB)'}
+                    </p>
                   </div>
-                  <label className="cursor-pointer rounded-full bg-luxury-charcoal px-4 py-2 text-[11px] uppercase tracking-[0.3em] text-luxury-cream transition-colors hover:bg-luxury-onyx">
-                    Choose
+                  <label className={`cursor-pointer rounded-full bg-luxury-charcoal px-4 py-2 text-[11px] uppercase tracking-[0.3em] text-luxury-cream transition-colors hover:bg-luxury-onyx ${uploading ? 'opacity-60 pointer-events-none' : ''}`}>
+                    {form.uploadedImageUrl ? 'Change' : 'Choose'}
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
                       onChange={handleFileChange}
+                      disabled={uploading}
                       className="hidden"
                     />
                   </label>
@@ -219,7 +258,7 @@ export default function CustomOrderModal({ open, onClose }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || uploading}
                   className="flex items-center justify-center gap-2 rounded-full bg-luxury-charcoal px-6 py-3 text-sm uppercase tracking-[0.3em] text-luxury-cream transition-colors hover:bg-luxury-onyx disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {submitting && <Loader2 size={16} className="animate-spin" />}
